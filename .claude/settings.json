@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Bash(Set-Location *)",
+      "Bash(Get-Content *)",
+      "Bash(Get-NetTCPConnection *)",
+      "Bash(Get-ChildItem *)",
+      "Bash(Get-Process *)"
+    ]
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "name": "seispimientas-api",
+  "version": "1.0.0",
+  "description": "Sistema de gestión integral — Seis Pimientas Casa de Pastas",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "migrate": "node db/migrate.js",
+    "seed": "node db/seed.js",
+    "test": "jest --coverage",
+    "test:watch": "jest --watch --no-coverage",
+    "test:stock": "jest tests/stock.test.js --no-coverage --forceExit",
+    "test:usuarios": "jest tests/usuarios.test.js --no-coverage --forceExit"
+  },
+  "dependencies": {
+    "archiver": "^8.0.0",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.1.5",
+    "helmet": "^7.1.0",
+    "joi": "^17.11.0",
+    "jsonwebtoken": "^9.0.2",
+    "leaflet": "^1.9.4",
+    "node-cron": "^4.2.1",
+    "pg": "^8.11.3",
+    "react-leaflet": "^5.0.0",
+    "uuid": "^9.0.0",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.2",
+    "supertest": "^6.3.3"
+  }
+}
