@@ -199,7 +199,7 @@ router.post('/auth/login', loginLimiter, async (req, res) => {
     }
 
     const result = await pool.query(
-      'SELECT id, nombre, email, telefono, password_hash, direccion, ciudad, provincia, codigo_postal, created_at FROM clientes WHERE email = $1 AND activo = true',
+      'SELECT id, nombre, email, telefono, password_hash, direccion, ciudad, provincia, codigo_postal, tipo, created_at FROM clientes WHERE email = $1 AND activo = true',
       [email]
     );
     const cliente = result.rows[0];
