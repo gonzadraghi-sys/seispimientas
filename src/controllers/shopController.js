@@ -5,6 +5,8 @@ const { Router } = require('express');
 const { auth, can } = require('../middleware/auth');
 const { authCliente, generarAccessToken, generarRefreshToken } = require('../middleware/authCliente');
 const { descontarStock } = require('../services/stockService');
+const { validate, schemas } = require('../middleware/validate');
+const { encryptRecord, decryptRecord } = require('../services/cryptoService');
 
 const router = Router();
 
@@ -60,13 +62,15 @@ router.get('/productos', async (req, res) => {
       SELECT
         p.id, p.nombre, p.unidad_medida, p.cantidad_por_unidad,
         p.categoria, pr.precio,
-        CASE WHEN pr.precio IS NOT NULL THEN true ELSE false END AS tiene_precio
+        CASE WHEN pr.precio IS NOT NULL THEN true ELSE false END AS tiene_precio,
+        COALESCE(s.cantidad, 0) AS stock_disponible
       FROM productos p
       LEFT JOIN precios pr ON pr.producto_id = p.id AND pr.lista_id = $1
+      LEFT JOIN stock s ON s.producto_id = p.id AND s.local_id = $2
       WHERE p.activo = true
     `;
-    const params = [listaActiva];
-    let i = 2;
+    const params = [listaActiva, VENTAS_WEB_LOCAL_ID];
+    let i = 3;
 
     if (q) {
       sql += ` AND p.nombre ILIKE $${i++}`;
@@ -82,7 +86,7 @@ router.get('/productos', async (req, res) => {
     const result = await pool.query(sql, params);
     res.json({ productos: result.rows, total: result.rows.length });
   } catch (error) {
-    console.error('Error listar productos shop:', error);
+    logger.error('Error listar productos shop:', error);
     res.status(500).json({ error: 'Error al listar productos' });
   }
 });
@@ -108,7 +112,7 @@ router.get('/productos/:id', async (req, res) => {
     }
     res.json(result.rows[0]);
   } catch (error) {
-    console.error('Error obtener producto shop:', error);
+    logger.error('Error obtener producto shop:', error);
     res.status(500).json({ error: 'Error al obtener producto' });
   }
 });
@@ -143,13 +147,13 @@ router.get('/lista-por-tipo', async (req, res) => {
     const listaId = await getListaIdPorTipo('mayorista');
     res.json({ lista_id: listaId, tipo: 'mayorista' });
   } catch (error) {
-    console.error('Error lista-por-tipo:', error);
+    logger.error('Error lista-por-tipo:', error);
     res.status(500).json({ error: 'Error al obtener lista' });
   }
 });
 
 // ── POST /shop/auth/registro — registrar nuevo cliente ──────
-router.post('/auth/registro', async (req, res) => {
+router.post('/auth/registro', validate(schemas.registroCliente), async (req, res) => {
   try {
     const { nombre, email, password, telefono, direccion, ciudad, provincia, codigo_postal, tipo } = req.body;
 
@@ -169,14 +173,21 @@ router.post('/auth/registro', async (req, res) => {
     const password_hash = await bcrypt.hash(password, parseInt(process.env.BCRYPT_ROUNDS || '12'));
     const tipoCliente = (tipo === 'mayorista') ? 'mayorista' : 'minorista';
 
+    // Cifrar PII antes de guardar
+    const piiData = encryptRecord('clientes', {
+      email, telefono: telefono || null,
+      direccion: direccion || null, ciudad: ciudad || null,
+      codigo_postal: codigo_postal || null,
+    });
+
     const result = await pool.query(
       `INSERT INTO clientes (nombre, email, telefono, password_hash, direccion, ciudad, provincia, codigo_postal, tipo)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING id, nombre, email, telefono, direccion, ciudad, provincia, tipo, created_at`,
-      [nombre, email, telefono || null, password_hash, direccion || null, ciudad || null, provincia || null, codigo_postal || null, tipoCliente]
+      [nombre, piiData.email, piiData.telefono, password_hash, piiData.direccion, piiData.ciudad, provincia || null, piiData.codigo_postal, tipoCliente]
     );
 
-    const cliente = result.rows[0];
+    const cliente = decryptRecord('clientes', result.rows[0]);
 
     // Pasar tipo al token
     const clienteToken = { ...cliente, type: 'cliente' };
@@ -185,13 +196,13 @@ router.post('/auth/registro', async (req, res) => {
 
     res.status(201).json({ cliente, accessToken, refreshToken });
   } catch (error) {
-    console.error('Error registro cliente:', error);
+    logger.error('Error registro cliente:', error);
     res.status(500).json({ error: 'Error al registrar cliente' });
   }
 });
 
 // ── POST /shop/auth/login — login de cliente ────────────────
-router.post('/auth/login', loginLimiter, async (req, res) => {
+router.post('/auth/login', loginLimiter, validate(schemas.loginCliente), async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) {
@@ -202,7 +213,7 @@ router.post('/auth/login', loginLimiter, async (req, res) => {
       'SELECT id, nombre, email, telefono, password_hash, direccion, ciudad, provincia, codigo_postal, tipo, created_at FROM clientes WHERE email = $1 AND activo = true',
       [email]
     );
-    const cliente = result.rows[0];
+    const cliente = decryptRecord('clientes', result.rows[0]);
     if (!cliente) {
       return res.status(401).json({ error: 'Email no registrado' });
     }
@@ -218,13 +229,13 @@ router.post('/auth/login', loginLimiter, async (req, res) => {
     delete cliente.password_hash;
     res.json({ cliente: { ...cliente, tipo: cliente.tipo || 'minorista' }, accessToken, refreshToken });
   } catch (error) {
-    console.error('Error login cliente:', error);
+    logger.error('Error login cliente:', error);
     res.status(500).json({ error: 'Error al iniciar sesión' });
   }
 });
 
 // ── POST /shop/auth/refresh — renovar token ────────────────
-router.post('/auth/refresh', async (req, res) => {
+router.post('/auth/refresh', validate(schemas.refreshToken), async (req, res) => {
   try {
     const { refreshToken } = req.body;
     if (!refreshToken) return res.status(400).json({ error: 'Refresh token requerido' });
@@ -251,7 +262,7 @@ router.post('/auth/refresh', async (req, res) => {
 });
 
 // ── POST /shop/auth/olvide-password — generar token de reseteo ──
-router.post('/auth/olvide-password', async (req, res) => {
+router.post('/auth/olvide-password', validate(schemas.olvidePassword), async (req, res) => {
   try {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: 'Email requerido' });
@@ -277,13 +288,13 @@ router.post('/auth/olvide-password', async (req, res) => {
       reset_token: process.env.NODE_ENV === 'development' ? resetToken : undefined,
     });
   } catch (error) {
-    console.error('Error olvide-password:', error);
+    logger.error('Error olvide-password:', error);
     res.status(500).json({ error: 'Error al procesar solicitud' });
   }
 });
 
 // ── POST /shop/auth/restablecer-password — cambiar contraseña con token ──
-router.post('/auth/restablecer-password', async (req, res) => {
+router.post('/auth/restablecer-password', validate(schemas.restablecerPassword), async (req, res) => {
   try {
     const { token, password } = req.body;
     if (!token || !password) return res.status(400).json({ error: 'Token y nueva contraseña requeridos' });
@@ -305,7 +316,7 @@ router.post('/auth/restablecer-password', async (req, res) => {
 
     res.json({ ok: true, message: 'Contraseña actualizada correctamente' });
   } catch (error) {
-    console.error('Error restablecer-password:', error);
+    logger.error('Error restablecer-password:', error);
     res.status(500).json({ error: 'Error al restablecer contraseña' });
   }
 });
@@ -322,7 +333,7 @@ router.get('/admin/clientes', auth, can('ventas_ver'), async (req, res) => {
     }
     sql += ' ORDER BY created_at DESC LIMIT 100';
     const r = await pool.query(sql, params);
-    res.json({ clientes: r.rows });
+    res.json({ clientes: decryptRecord('clientes', r.rows) });
   } catch (error) {
     res.status(500).json({ error: 'Error al listar clientes' });
   }
@@ -339,12 +350,16 @@ router.post('/admin/clientes', auth, can('usuarios'), async (req, res) => {
     if (existe.rows.length > 0) return res.status(409).json({ error: 'Ya existe un cliente con ese email' });
 
     const hash = require('bcryptjs').hashSync(password, parseInt(process.env.BCRYPT_ROUNDS || '12'));
+    const piiData = encryptRecord('clientes', {
+      email, telefono: telefono || null,
+      direccion: direccion || null, ciudad: ciudad || null,
+    });
     const r = await pool.query(
       `INSERT INTO clientes (nombre, email, telefono, password_hash, direccion, ciudad, provincia)
        VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, nombre, email, telefono, direccion, ciudad, provincia, activo, created_at`,
-      [nombre, email, telefono || null, hash, direccion || null, ciudad || null, provincia || null]
+      [nombre, piiData.email, piiData.telefono, hash, piiData.direccion, piiData.ciudad, provincia || null]
     );
-    res.status(201).json({ cliente: r.rows[0] });
+    res.status(201).json({ cliente: decryptRecord('clientes', r.rows[0]) });
   } catch (error) {
     res.status(500).json({ error: 'Error al crear cliente: ' + error.message });
   }
@@ -399,7 +414,7 @@ router.put('/clientes/me', authCliente, async (req, res) => {
 });
 
 // ── POST /shop/mercadopago/crear-preferencia — crear preferencia MP ──
-router.post('/mercadopago/crear-preferencia', authCliente, async (req, res) => {
+router.post('/mercadopago/crear-preferencia', authCliente, validate(schemas.crearPreferenciaMP), async (req, res) => {
   try {
     const { pedidoId } = req.body;
     if (!pedidoId) return res.status(400).json({ error: 'pedidoId requerido' });
@@ -443,7 +458,7 @@ router.post('/mercadopago/crear-preferencia', authCliente, async (req, res) => {
       init_point: mpResult.init_point || mpResult.sandbox_init_point,
     });
   } catch (error) {
-    console.error('Error crear preferencia MP:', error);
+    logger.error('Error crear preferencia MP:', error);
     res.status(500).json({ error: 'Error al crear preferencia de pago' });
   }
 });
@@ -468,7 +483,100 @@ async function ensureWebConfig() {
   }
 }
 
-router.post('/pedidos', authCliente, async (req, res) => {
+// ── POST /shop/pedidos/guest — pedido sin login (guest checkout) ──
+router.post('/pedidos/guest', validate(schemas.crearPedidoWeb), async (req, res) => {
+  try {
+    const { items, metodo_pago, direccion_envio, ciudad_envio, provincia_envio, codigo_postal_envio, notas, nombre, email } = req.body;
+
+    if (!items || !items.length) return res.status(400).json({ error: 'Debe incluir al menos un producto' });
+    if (!metodo_pago || !['mercadopago', 'transferencia'].includes(metodo_pago)) return res.status(400).json({ error: 'Método de pago inválido' });
+    if (!nombre || !email) return res.status(400).json({ error: 'Nombre y email requeridos para guest checkout' });
+
+    // Buscar o crear cliente
+    let clienteResult = await pool.query('SELECT id, nombre, email, tipo FROM clientes WHERE email = $1', [email]);
+    let cliente;
+    let esNuevo = false;
+
+    if (clienteResult.rows.length === 0) {
+      const tempPassword = crypto.randomBytes(20).toString('hex');
+      const tempHash = await bcrypt.hash(tempPassword, 12);
+      clienteResult = await pool.query(
+        `INSERT INTO clientes (nombre, email, password_hash, direccion, ciudad, provincia, codigo_postal, tipo)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'minorista')
+         RETURNING id, nombre, email, tipo`,
+        [nombre, email, tempHash, direccion_envio || null, ciudad_envio || null, provincia_envio || null, codigo_postal_envio || null]
+      );
+      cliente = clienteResult.rows[0];
+      esNuevo = true;
+    } else {
+      cliente = clienteResult.rows[0];
+    }
+
+    // Determinar lista de precios
+    const listaPreciosId = LISTA_PRECIOS_WEB_ID;
+    if (!listaPreciosId) return res.status(500).json({ error: 'Lista de precios no configurada' });
+
+    let total = 0;
+    const itemsConPrecio = [];
+    for (const item of items) {
+      const precioRow = await pool.query('SELECT precio FROM precios WHERE producto_id = $1 AND lista_id = $2', [item.producto_id, listaPreciosId]);
+      const precio = parseFloat(precioRow.rows[0]?.precio || 0);
+      if (precio <= 0) return res.status(400).json({ error: `Producto sin precio: ${item.producto_id}` });
+      const subtotal = precio * parseFloat(item.cantidad || 0);
+      total += subtotal;
+      itemsConPrecio.push({ producto_id: item.producto_id, cantidad: parseFloat(item.cantidad), precio_unitario: precio, subtotal });
+    }
+
+    // Crear pedido
+    let transferenciaDatos = metodo_pago === 'transferencia' ? JSON.stringify(DATOS_BANCARIOS) : null;
+    const pedidoResult = await pool.query(
+      `INSERT INTO pedidos_web (cliente_id, total, metodo_pago, direccion_envio, ciudad_envio, provincia_envio, codigo_postal_envio, notas, transferencia_datos_bancarios)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      [cliente.id, total, metodo_pago, direccion_envio, ciudad_envio, provincia_envio, codigo_postal_envio, notas || null, transferenciaDatos]
+    );
+    const pedido = pedidoResult.rows[0];
+
+    for (const item of itemsConPrecio) {
+      await pool.query(
+        `INSERT INTO pedidos_web_detalles (pedido_id, producto_id, cantidad, precio_unitario, subtotal) VALUES ($1, $2, $3, $4, $5)`,
+        [pedido.id, item.producto_id, item.cantidad, item.precio_unitario, item.subtotal]
+      );
+    }
+
+    const response = {
+      pedido: { id: pedido.id, numero: pedido.numero, total: pedido.total, estado: pedido.estado, metodo_pago: pedido.metodo_pago, created_at: pedido.created_at },
+      es_cliente_nuevo: esNuevo,
+    };
+
+    if (metodo_pago === 'transferencia') response.datos_bancarios = DATOS_BANCARIOS;
+
+    if (metodo_pago === 'mercadopago') {
+      try {
+        const { crearPreferencia } = require('../services/mercadopago');
+        const nombresMap = {};
+        for (const item of itemsConPrecio) {
+          if (!nombresMap[item.producto_id]) {
+            const r = await pool.query('SELECT nombre FROM productos WHERE id = $1', [item.producto_id]);
+            nombresMap[item.producto_id] = r.rows[0]?.nombre || 'Producto';
+          }
+        }
+        const mpItems = itemsConPrecio.map(item => ({ nombre: nombresMap[item.producto_id], cantidad: item.cantidad, precio_unitario: item.precio_unitario }));
+        const mpResult = await crearPreferencia(mpItems, pedido.id, email);
+        await pool.query('UPDATE pedidos_web SET mp_preference_id = $1 WHERE id = $2', [mpResult.id, pedido.id]);
+        response.init_point = mpResult.init_point || mpResult.sandbox_init_point;
+      } catch (mpErr) {
+        logger.error('Error MP guest:', mpErr.message);
+      }
+    }
+
+    res.status(201).json(response);
+  } catch (error) {
+    logger.error('Error guest pedido:', error);
+    res.status(500).json({ error: 'Error al crear pedido: ' + error.message });
+  }
+});
+
+router.post('/pedidos', authCliente, validate(schemas.crearPedidoWeb), async (req, res) => {
   try {
     const { items, metodo_pago, direccion_envio, ciudad_envio, provincia_envio, codigo_postal_envio, notas } = req.body;
 
@@ -479,9 +587,13 @@ router.post('/pedidos', authCliente, async (req, res) => {
       return res.status(400).json({ error: 'Método de pago inválido' });
     }
 
-    // Calcular total con precios actuales de la lista web
-    if (!LISTA_PRECIOS_WEB_ID) {
-      return res.status(500).json({ error: 'LISTA_PRECIOS_WEB_ID no configurada' });
+    // Determinar lista de precios según tipo de cliente
+    const cliente = req.cliente;
+    const listaPreciosId = (cliente.tipo === 'mayorista')
+      ? await getListaIdPorTipo('mayorista')
+      : LISTA_PRECIOS_WEB_ID;
+    if (!listaPreciosId) {
+      return res.status(500).json({ error: 'Lista de precios no configurada para este tipo de cliente' });
     }
 
     let total = 0;
@@ -490,12 +602,12 @@ router.post('/pedidos', authCliente, async (req, res) => {
     for (const item of items) {
       const precioRow = await pool.query(
         'SELECT precio FROM precios WHERE producto_id = $1 AND lista_id = $2',
-        [item.producto_id, LISTA_PRECIOS_WEB_ID]
+        [item.producto_id, listaPreciosId]
       );
       const precio = parseFloat(precioRow.rows[0]?.precio || 0);
       if (precio <= 0) {
         return res.status(400).json({
-          error: `Producto sin precio en la lista web: ${item.producto_id}`
+          error: `Producto sin precio en la lista ${cliente.tipo}: ${item.producto_id}`
         });
       }
       const subtotal = precio * parseFloat(item.cantidad || 0);
@@ -509,8 +621,6 @@ router.post('/pedidos', authCliente, async (req, res) => {
     }
 
     // Crear pedido
-    const cliente = req.cliente;
-
     let transferenciaDatos = null;
     if (metodo_pago === 'transferencia') {
       transferenciaDatos = JSON.stringify(DATOS_BANCARIOS);
@@ -575,14 +685,14 @@ router.post('/pedidos', authCliente, async (req, res) => {
         await pool.query('UPDATE pedidos_web SET mp_preference_id = $1 WHERE id = $2', [mpResult.id, pedido.id]);
         response.init_point = mpResult.init_point || mpResult.sandbox_init_point;
       } catch (mpErr) {
-        console.error('Error al crear preferencia MP automática:', mpErr.message);
+        logger.error('Error al crear preferencia MP automática:', mpErr.message);
         // No falla el pedido, el frontend puede reintentar con POST /mercadopago/crear-preferencia
       }
     }
 
     res.status(201).json(response);
   } catch (error) {
-    console.error('Error crear pedido web:', error);
+    logger.error('Error crear pedido web:', error);
     res.status(500).json({ error: 'Error al crear pedido: ' + error.message });
   }
 });
@@ -690,7 +800,7 @@ router.get('/admin/pedidos/:id', auth, can('ventas_ver'), async (req, res) => {
 });
 
 // ── PUT /shop/admin/pedidos/:id/estado — cambiar estado ────
-router.put('/admin/pedidos/:id/estado', auth, can('ventas_crear'), async (req, res) => {
+router.put('/admin/pedidos/:id/estado', auth, can('ventas_crear'), validate(schemas.cambiarEstadoPedidoWeb), async (req, res) => {
   try {
     const { estado } = req.body;
     const estadosValidos = ['pendiente_pago', 'confirmado', 'en_preparacion', 'enviado', 'entregado', 'cancelado'];
@@ -789,7 +899,7 @@ router.post('/admin/pedidos/:id/confirmar-pago', auth, can('ventas_crear'), asyn
     });
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
-    console.error('Error confirmar pago:', error);
+    logger.error('Error confirmar pago:', error);
     res.status(500).json({ error: 'Error al confirmar pago: ' + error.message });
   } finally {
     client.release();
@@ -810,22 +920,23 @@ router.post('/mercadopago/webhook', async (req, res) => {
     if (type !== 'payment' || !data?.id) return;
 
     const paymentId = data.id;
-    console.log('Webhook MP recibido: payment_id =', paymentId);
+    logger.info('Webhook MP recibido: payment_id =', paymentId);
 
     await ensureWebConfig();
 
     // Consultar el pago en MP
     const { obtenerPago } = require('../services/mercadopago');
+const { logger } = require('../services/logger');
     const payment = await obtenerPago(paymentId);
 
     if (!payment || payment.status !== 'approved') {
-      console.log('Pago no aprobado:', payment?.status);
+      logger.info('Pago no aprobado:', payment?.status);
       return;
     }
 
     const pedidoId = payment.external_reference;
     if (!pedidoId) {
-      console.log('Webhook MP: sin external_reference');
+      logger.info('Webhook MP: sin external_reference');
       return;
     }
 
@@ -840,7 +951,7 @@ router.post('/mercadopago/webhook', async (req, res) => {
       );
       if (pedido.rows.length === 0) {
         await client.query('ROLLBACK');
-        console.log('Pedido no encontrado o ya confirmado:', pedidoId);
+        logger.info('Pedido no encontrado o ya confirmado:', pedidoId);
         return;
       }
 
@@ -848,7 +959,7 @@ router.post('/mercadopago/webhook', async (req, res) => {
 
       if (!VENTAS_WEB_LOCAL_ID || !USUARIO_WEB_ID) {
         await client.query('ROLLBACK');
-        console.error('VENTAS_WEB_LOCAL_ID o USUARIO_WEB_ID no configurados');
+        logger.error('VENTAS_WEB_LOCAL_ID o USUARIO_WEB_ID no configurados');
         return;
       }
 
@@ -883,7 +994,7 @@ router.post('/mercadopago/webhook', async (req, res) => {
         await descontarStock(client, detalles.rows, VENTAS_WEB_LOCAL_ID, ventaId, USUARIO_WEB_ID, 'venta', `Pedido web #${pw.numero} - MP`);
       } catch (stockErr) {
         await client.query('ROLLBACK');
-        console.error('Error stock en webhook MP:', stockErr.message);
+        logger.error('Error stock en webhook MP:', stockErr.message);
         return;
       }
 
@@ -894,15 +1005,15 @@ router.post('/mercadopago/webhook', async (req, res) => {
       );
 
       await client.query('COMMIT');
-      console.log(`✅ Pedido web #${pw.numero} confirmado por MP. Venta: ${ventaId}`);
+      logger.info(`✅ Pedido web #${pw.numero} confirmado por MP. Venta: ${ventaId}`);
     } catch (err) {
       await client.query('ROLLBACK').catch(() => {});
-      console.error('Error procesando webhook MP:', err.message);
+      logger.error('Error procesando webhook MP:', err.message);
     } finally {
       client.release();
     }
   } catch (error) {
-    console.error('Error en webhook MP:', error.message);
+    logger.error('Error en webhook MP:', error.message);
   }
 });
 

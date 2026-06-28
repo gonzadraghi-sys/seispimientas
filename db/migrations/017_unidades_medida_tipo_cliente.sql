@@ -23,6 +23,7 @@ INSERT INTO unidades_medida (nombre, simbolo) VALUES
   ('unidad',    'un'),
   ('pack',      'pack'),
   ('caja',      'caja'),
+  ('media caja', 'mcaja'),
   ('litro',     'l'),
   ('mililitro', 'ml'),
   ('docena',    'doc'),

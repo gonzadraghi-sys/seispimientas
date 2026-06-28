@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const cron = require('node-cron');
 const { ZipArchive } = require('archiver');
+const { logger } = require('../services/logger');
 
 const BACKUP_DIR = path.resolve(__dirname, '../../backups');
 
@@ -120,9 +121,9 @@ function iniciarCron(cronExpr) {
         const stat = fs.statSync(path.join(BACKUP_DIR, filename));
         await query('UPDATE backups SET size_bytes = $1 WHERE filename = $2', [stat.size, filename]);
       } catch {}
-      console.log(`Backup automatico completado: ${filename}`);
+      logger.info(`Backup automatico completado: ${filename}`);
     } catch (err) {
-      console.error('Backup automatico fallo:', err.message);
+      logger.error('Backup automatico fallo:', err.message);
     }
   });
 }
@@ -161,7 +162,7 @@ exports.crearBackup = async (req, res) => {
       cloud: cloudResult,
     });
   } catch (err) {
-    console.error('Error al crear backup:', err.message);
+    logger.error('Error al crear backup:', err.message);
     res.status(500).json({ error: 'Error al generar el backup: ' + err.message });
   }
 };
@@ -291,7 +292,7 @@ exports.guardarConfig = async (req, res) => {
 
     res.json(result.rows[0]);
   } catch (err) {
-    console.error('Error al guardar config:', err.message);
+    logger.error('Error al guardar config:', err.message);
     res.status(500).json({ error: 'Error al guardar configuracion' });
   }
 };
@@ -354,7 +355,7 @@ exports.limpiarBackups = async (req, res) => {
         : 'Ya solo tenes el ultimo de cada tipo. No hay nada para limpiar.',
     });
   } catch (err) {
-    console.error('Error al limpiar backups:', err.message);
+    logger.error('Error al limpiar backups:', err.message);
     res.status(500).json({ error: 'Error al limpiar backups' });
   }
 };
@@ -511,11 +512,11 @@ exports.crearBackupSistema = async (req, res) => {
 
     // 3. Procesar en background (sin await)
     procesarBackupSistema(backupId, filename, ambito, incluir_db, incluir_node_modules, remote_id).catch(err => {
-      console.error('Error fatal en background backup:', err);
+      logger.error('Error fatal en background backup:', err);
     });
 
   } catch (err) {
-    console.error('Error al iniciar backup de sistema:', err);
+    logger.error('Error al iniciar backup de sistema:', err);
     if (!res.headersSent) {
       res.status(500).json({ error: 'Error al iniciar backup: ' + err.message });
     }
@@ -525,7 +526,7 @@ exports.crearBackupSistema = async (req, res) => {
 // ── Background: procesa el backup y actualiza el registro ────────
 async function procesarBackupSistema(backupId, filename, ambito, incluirDb, incluirNodeModules, remoteId) {
   try {
-    console.log('⏳ Procesando backup en background:', filename);
+    logger.info('⏳ Procesando backup en background:', filename);
 
     const result = await crearArchivoSistema(ambito, incluirDb, incluirNodeModules, filename);
     const { filepath, size } = result;
@@ -547,17 +548,17 @@ async function procesarBackupSistema(backupId, filename, ambito, incluirDb, incl
       }
     }
 
-    console.log('✅ Backup completado:', filename, `(${size} bytes)`);
+    logger.info('✅ Backup completado:', filename, `(${size} bytes)`);
   } catch (err) {
-    console.error('❌ Error en background backup:', err.message);
-    console.error(err.stack);
+    logger.error('❌ Error en background backup:', err.message);
+    logger.error(err.stack);
     try {
       await query(
         `UPDATE backups SET estado = 'error' WHERE id = $1`,
         [backupId]
       );
     } catch (dbErr) {
-      console.error('Error al actualizar estado del backup:', dbErr.message);
+      logger.error('Error al actualizar estado del backup:', dbErr.message);
     }
   }
 }
@@ -834,7 +835,7 @@ exports.restaurarBackup = async (req, res) => {
       pre_backup: preBackup,
     });
   } catch (err) {
-    console.error('Error al restaurar backup:', err.message);
+    logger.error('Error al restaurar backup:', err.message);
     res.status(500).json({ error: 'Error al restaurar backup: ' + err.message });
   }
 };

@@ -1,4 +1,5 @@
 ﻿const { pool } = require('../config/database');
+const { logger } = require('../services/logger');
 
 async function esUsuarioAdmin(rolId) {
   const result = await pool.query(`SELECT permisos->>'admin' as admin FROM roles WHERE id = $1`, [rolId]);
@@ -53,7 +54,7 @@ exports.crear = async (req, res) => {
     res.status(201).json({ message: 'Orden creada', orden: result.rows[0] });
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error(error);
+    logger.error(error);
     res.status(500).json({ error: 'Error al crear orden' });
   } finally {
     client.release();
@@ -118,7 +119,7 @@ exports.cambiarEstado = async (req, res) => {
     res.json({ message: `Estado actualizado a ${estado}` });
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error(error);
+    logger.error(error);
     res.status(500).json({ error: 'Error al cambiar estado' });
   } finally {
     client.release();

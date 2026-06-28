@@ -1,4 +1,5 @@
 const { pool } = require('../config/database');
+const { logger } = require('../services/logger');
 
 // ── Listar todas las listas de precios ────────────────────
 exports.listarListas = async (req, res) => {
@@ -16,7 +17,7 @@ exports.listarListas = async (req, res) => {
     `);
     res.json(result.rows);
   } catch (error) {
-    console.error('Error listarListas:', error);
+    logger.error('Error listarListas:', error);
     res.status(500).json({ error: 'Error al listar listas de precios' });
   }
 };
@@ -35,7 +36,7 @@ exports.actualizarLista = async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: 'Lista no encontrada' });
     res.json(result.rows[0]);
   } catch (error) {
-    console.error('Error actualizarLista:', error);
+    logger.error('Error actualizarLista:', error);
     res.status(500).json({ error: 'Error al actualizar lista' });
   }
 };
@@ -54,7 +55,7 @@ exports.crearLista = async (req, res) => {
     );
     res.status(201).json(result.rows[0]);
   } catch (error) {
-    console.error('Error crearLista:', error);
+    logger.error('Error crearLista:', error);
     res.status(500).json({ error: 'Error al crear lista' });
   }
 };
@@ -92,7 +93,7 @@ exports.listarPorLista = async (req, res) => {
     `, [lista_id]);
     res.json(result.rows);
   } catch (error) {
-    console.error('Error listarPorLista:', error);
+    logger.error('Error listarPorLista:', error);
     res.status(500).json({ error: 'Error al listar precios por lista' });
   }
 };
@@ -213,7 +214,7 @@ exports.eliminar = async (req, res) => {
 
     res.json({ message: 'Producto eliminado de la lista' });
   } catch (error) {
-    console.error('Error eliminar precio:', error);
+    logger.error('Error eliminar precio:', error);
     res.status(500).json({ error: 'Error al eliminar precio' });
   }
 };
@@ -236,7 +237,7 @@ exports.actualizarProducto = async (req, res) => {
     if (!result.rows.length) return res.status(404).json({ error: 'Producto no encontrado' });
     res.json(result.rows[0]);
   } catch (error) {
-    console.error('Error actualizarProducto:', error);
+    logger.error('Error actualizarProducto:', error);
     res.status(500).json({ error: 'Error al actualizar producto' });
   }
 };
@@ -315,7 +316,7 @@ exports.copiarPrecios = async (req, res) => {
     res.json({ message: `${totalCopiados} producto(s) copiados a ${listaWord}` });
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Error copiarPrecios:', error);
+    logger.error('Error copiarPrecios:', error);
     res.status(500).json({ error: 'Error al copiar precios' });
   } finally { client.release(); }
 };
@@ -410,7 +411,7 @@ exports.batch = async (req, res) => {
     }
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Error batch:', error);
+    logger.error('Error batch:', error);
     res.status(500).json({ error: 'Error en operacion batch' });
   } finally { client.release(); }
 };

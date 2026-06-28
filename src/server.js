@@ -5,6 +5,7 @@ const helmet     = require('helmet');
 const cors       = require('cors');
 const rateLimit  = require('express-rate-limit');
 const { pool }   = require('./config/database');
+const { logger, requestLogger } = require('./services/logger');
 const apiRoutes = require('./routes/index');
 const path = require('path');
 const fs = require('fs');
@@ -46,16 +47,13 @@ app.use(rateLimit({
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// ── LOG BÁSICO DE REQUESTS (dev) ─────────────────────────
-if (process.env.NODE_ENV === 'development') {
-  app.use((req, _, next) => {
-    console.log(`${new Date().toISOString()} ${req.method} ${req.path}`);
-    next();
-  });
-}
+// ── LOG SANITIZADO DE REQUESTS ─────────────────────────
+app.use(requestLogger);
 
 // ── RUTAS ────────────────────────────────────────────────
+const oauthRoutes = require('./routes/oauth');
 app.use('/api', apiRoutes);
+app.use('/oauth2', oauthRoutes);
 
 // Health check — para monitoreo y Docker
 app.get('/health', async (_, res) => {
@@ -79,7 +77,7 @@ app.use((req, res) => {
 
 // ── ERROR HANDLER GLOBAL ─────────────────────────────────
 app.use((err, req, res, _next) => {
-  console.error('Error no capturado:', err.message);
+  logger.error('Error no capturado', { error: err.message, stack: process.env.NODE_ENV === 'development' ? err.stack : undefined });
   res.status(err.status || 500).json({
     error: process.env.NODE_ENV === 'production'
       ? 'Error interno del servidor'
@@ -90,14 +88,7 @@ app.use((err, req, res, _next) => {
 // ── INICIAR (solo si se ejecuta directamente, no al requerirlo para tests) ──
 if (require.main === module) {
   const server = app.listen(PORT, () => {
-    console.log('');
-    console.log('  ╔═══════════════════════════════════╗');
-    console.log('  ║    Seis Pimientas · API v1.0.0    ║');
-    console.log('  ╠═══════════════════════════════════╣');
-    console.log(`  ║  Puerto:  ${PORT}                      ║`);
-    console.log(`  ║  Entorno: ${(process.env.NODE_ENV || 'development').padEnd(11)}            ║`);
-    console.log('  ╚═══════════════════════════════════╝');
-    console.log('');
+    logger.info('Seis Pimientas API iniciada', { puerto: PORT, entorno: process.env.NODE_ENV || 'development' });
   });
 
   // Timeout largo para requests de backup pesados (10 min)

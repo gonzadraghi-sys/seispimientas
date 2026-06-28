@@ -1,4 +1,5 @@
 const { pool } = require('../config/database');
+const { logger } = require('../services/logger');
 
 async function esAdmin(rol_id) {
   const r = await pool.query(`SELECT permisos->>'admin' as admin FROM roles WHERE id=$1`, [rol_id]);
@@ -47,7 +48,7 @@ exports.listar = async (req, res) => {
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (error) {
-    console.error('Error listar stock:', error);
+    logger.error('Error listar stock:', error);
     res.status(500).json({ error: 'Error al listar stock' });
   }
 };
@@ -159,7 +160,7 @@ exports.movimiento = async (req, res) => {
     res.status(201).json({ message: 'Movimiento registrado', cantidad_despues: despues });
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Error movimiento:', error);
+    logger.error('Error movimiento:', error);
     res.status(500).json({ error: error.message || 'Error al procesar movimiento' });
   } finally {
     client.release();

@@ -1,6 +1,7 @@
 ﻿const { verificarAccessToken } = require('../utils/jwt');
 const { pool } = require('../config/database');
 const { esUsuarioAdmin, usuarioPuedeEnLocal, esRepartidor } = require('../utils/permisos');
+const { decryptRecord } = require('../services/cryptoService');
 
 // Middleware principal: verifica token y carga usuario en req.user
 const auth = async (req, res, next) => {
@@ -13,14 +14,14 @@ const auth = async (req, res, next) => {
     const decoded = verificarAccessToken(token);
     // Verificar que el usuario aún exista y esté activo
     const result = await pool.query(
-      `SELECT id, username, nombre_completo, email, rol_id, local_id, activo
+      `SELECT id, username, nombre_completo, email, rol_id, local_id, activo, mfa_enabled
        FROM usuarios WHERE id = $1`,
       [decoded.id]
     );
     if (result.rows.length === 0 || !result.rows[0].activo) {
       return res.status(401).json({ error: 'Usuario no válido o desactivado' });
     }
-    req.user = result.rows[0];
+    req.user = decryptRecord('usuarios', result.rows[0]);
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {

@@ -1,6 +1,8 @@
 // src/controllers/usuariosController.js
 const bcrypt  = require('bcryptjs');
 const { query, transaction } = require('../config/database');
+const { logger } = require('../services/logger');
+const { decryptRecord, encryptRecord } = require('../services/cryptoService');
 
 // ══ GET /api/usuarios ═══════════════════════════════════
 const listar = async (req, res) => {
@@ -35,9 +37,9 @@ const listar = async (req, res) => {
       params
     );
 
-    return res.status(200).json(result.rows);
+    return res.status(200).json(decryptRecord('usuarios', result.rows));
   } catch (err) {
-    console.error('Error listar usuarios:', err.message);
+    logger.error('Error listar usuarios:', err.message);
     return res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
@@ -66,7 +68,7 @@ const obtener = async (req, res) => {
       return res.status(403).json({ error: 'No puedes ver usuarios de otros locales' });
     }
 
-    return res.status(200).json(result.rows[0]);
+    return res.status(200).json(decryptRecord('usuarios', result.rows[0]));
   } catch (err) {
     return res.status(500).json({ error: 'Error interno del servidor' });
   }
@@ -108,7 +110,7 @@ const crear = async (req, res) => {
       usuario: result.rows[0]
     });
   } catch (err) {
-    console.error('Error crear usuario:', err.message);
+    logger.error('Error crear usuario:', err.message);
     return res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
@@ -253,7 +255,7 @@ const eliminar = async (req, res) => {
 
     return res.status(200).json({ message: `Usuario ${result.rows[0].username} eliminado` });
   } catch (err) {
-    console.error('Error eliminar usuario:', err.message);
+    logger.error('Error eliminar usuario:', err.message);
     return res.status(500).json({ error: 'Error interno del servidor' });
   }
 };

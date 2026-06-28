@@ -1,5 +1,6 @@
 const { pool } = require('../config/database');
 const { descontarStock, revertirStock } = require('../services/stockService');
+const { logger } = require('../services/logger');
 
 // ── Listar ventas ──────────────────────────────────────────
 exports.listar = async (req, res) => {
@@ -38,7 +39,7 @@ exports.listar = async (req, res) => {
     `, params);
     res.json(result.rows);
   } catch (error) {
-    console.error('Error listar ventas:', error);
+    logger.error('Error listar ventas:', error);
     res.status(500).json({ error: 'Error al listar ventas' });
   }
 };
@@ -70,7 +71,7 @@ exports.obtener = async (req, res) => {
     if (!result.rows.length) return res.status(404).json({ error: 'Venta no encontrada' });
     res.json(result.rows[0]);
   } catch (error) {
-    console.error('Error obtener venta:', error);
+    logger.error('Error obtener venta:', error);
     res.status(500).json({ error: 'Error al obtener venta' });
   }
 };
@@ -127,7 +128,7 @@ exports.crear = async (req, res) => {
     res.status(201).json(venta.rows[0]);
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
-    console.error('Error crear venta:', error);
+    logger.error('Error crear venta:', error);
     res.status(500).json({ error: 'Error al registrar venta' });
   } finally {
     client.release();
@@ -174,7 +175,7 @@ exports.anular = async (req, res) => {
     res.json({ message: 'Venta anulada y stock revertido' });
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
-    console.error('Error anular venta:', error);
+    logger.error('Error anular venta:', error);
     res.status(500).json({ error: 'Error al anular venta' });
   } finally {
     client.release();

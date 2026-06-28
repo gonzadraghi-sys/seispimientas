@@ -1,0 +1,78 @@
+# ═══════════════════════════════════════════════════════════
+#  Deploy automático — Seis Pimientas
+#  Trigger: push a la rama main
+#  Requiere configurar en GitHub → Settings → Secrets:
+#    DEPLOY_HOST     = IP o dominio del servidor
+#    DEPLOY_USER     = usuario SSH (ej: root, deploy)
+#    DEPLOY_KEY      = clave privada SSH (copiá el contenido)
+#    DEPLOY_PATH     = ruta absoluta en el servidor
+# ═══════════════════════════════════════════════════════════
+
+name: Deploy a producción
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🔄 Checkout del código
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 📦 Instalar dependencias
+        run: npm ci
+
+      - name: 🧪 Correr migraciones (base de datos)
+        run: node db/migrate.js
+        env:
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+
+      - name: 🧪 Tests
+        run: npm test
+        continue-on-error: true
+
+      - name: 🚀 Deploy al servidor vía SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          script: |
+            set -e
+            echo "→ Entrando a ${{ secrets.DEPLOY_PATH }}"
+            cd ${{ secrets.DEPLOY_PATH }}
+
+            echo "→ Pull desde GitHub"
+            git pull origin main
+
+            echo "→ Instalando dependencias"
+            npm ci --omit=dev
+
+            echo "→ Ejecutando migraciones"
+            node db/migrate.js
+
+            echo "→ Build frontend admin"
+            cd seispimientas-web && npx vite build && cd ..
+
+            echo "→ Build frontend shop"
+            cd seispimientas-shop && npx vite build && cd ..
+
+            echo "→ Reiniciando backend"
+            pm2 restart seispimientas-api || pm2 start src/server.js --name seispimientas-api
+
+            echo "→ Guardando configuración PM2"
+            pm2 save
+
+            echo "✅ Deploy completado"

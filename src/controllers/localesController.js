@@ -1,4 +1,5 @@
 const { pool } = require('../config/database');
+const { logger } = require('../services/logger');
 
 // ── Listar locales ────────────────────────────────────────
 exports.listar = async (req, res) => {
@@ -12,7 +13,7 @@ exports.listar = async (req, res) => {
     `);
     res.json(result.rows);
   } catch (error) {
-    console.error('Error listar locales:', error);
+    logger.error('Error listar locales:', error);
     res.status(500).json({ error: 'Error al listar locales' });
   }
 };
@@ -43,7 +44,7 @@ exports.crear = async (req, res) => {
     );
     res.status(201).json(result.rows[0]);
   } catch (error) {
-    console.error('Error crear local:', error);
+    logger.error('Error crear local:', error);
     res.status(500).json({ error: 'Error al crear local' });
   }
 };
@@ -73,7 +74,7 @@ exports.actualizar = async (req, res) => {
     if (!result.rows.length) return res.status(404).json({ error: 'Local no encontrado' });
     res.json(result.rows[0]);
   } catch (error) {
-    console.error('Error actualizar local:', error);
+    logger.error('Error actualizar local:', error);
     res.status(500).json({ error: 'Error al actualizar local' });
   }
 };

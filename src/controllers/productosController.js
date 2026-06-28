@@ -1,5 +1,6 @@
 // src/controllers/productosController.js — CRUD de productos
 const { pool } = require('../config/database');
+const { logger } = require('../services/logger');
 
 // ── Listar productos ──────────────────────────────────
 exports.listar = async (req, res) => {
@@ -25,7 +26,7 @@ exports.listar = async (req, res) => {
     const result = await pool.query(sql, params);
     res.json(result.rows);
   } catch (error) {
-    console.error('Error listar productos:', error);
+    logger.error('Error listar productos:', error);
     res.status(500).json({ error: 'Error al listar productos' });
   }
 };
@@ -44,7 +45,7 @@ exports.obtener = async (req, res) => {
     }
     res.json(result.rows[0]);
   } catch (error) {
-    console.error('Error obtener producto:', error);
+    logger.error('Error obtener producto:', error);
     res.status(500).json({ error: 'Error al obtener producto' });
   }
 };
@@ -63,7 +64,7 @@ exports.crear = async (req, res) => {
     );
     res.status(201).json(result.rows[0]);
   } catch (error) {
-    console.error('Error crear producto:', error);
+    logger.error('Error crear producto:', error);
     res.status(500).json({ error: 'Error al crear producto' });
   }
 };
@@ -97,7 +98,7 @@ exports.actualizar = async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: 'Producto no encontrado' });
     res.json(result.rows[0]);
   } catch (error) {
-    console.error('Error actualizar producto:', error);
+    logger.error('Error actualizar producto:', error);
     res.status(500).json({ error: 'Error al actualizar producto' });
   }
 };
@@ -112,7 +113,7 @@ exports.eliminar = async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: 'Producto no encontrado' });
     res.json({ message: 'Producto desactivado' });
   } catch (error) {
-    console.error('Error eliminar producto:', error);
+    logger.error('Error eliminar producto:', error);
     res.status(500).json({ error: 'Error al eliminar producto' });
   }
 };

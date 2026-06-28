@@ -1,4 +1,5 @@
 const { pool } = require('../config/database');
+const { logger } = require('../services/logger');
 
 async function esAdmin(rol_id) {
   const r = await pool.query(`SELECT permisos->>'admin' as admin FROM roles WHERE id=$1`, [rol_id]);
@@ -52,7 +53,7 @@ exports.pedidos = async (req, res) => {
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (error) {
-    console.error('Error listar pedidos:', error);
+    logger.error('Error listar pedidos:', error);
     res.status(500).json({ error: 'Error al listar pedidos' });
   }
 };
@@ -82,9 +83,36 @@ exports.crearPedido = async (req, res) => {
     res.status(201).json({ pedido: pedido.rows[0], codigo_confirmacion: codigo });
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Error crearPedido:', error);
+    logger.error('Error crearPedido:', error);
     res.status(500).json({ error: 'Error al crear pedido' });
   } finally { client.release(); }
+};
+
+// ── Asignar repartidor a pedido ──────────────────────────
+exports.asignarRepartidor = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { repartidor_id } = req.body;
+    if (!repartidor_id) return res.status(400).json({ error: 'repartidor_id requerido' });
+
+    const rep = await pool.query(
+      `SELECT u.id FROM usuarios u
+       JOIN roles r ON r.id = u.rol_id
+       WHERE u.id = $1 AND u.activo = true AND r.nombre = 'repartidor'`,
+      [repartidor_id]
+    );
+    if (!rep.rows.length) return res.status(400).json({ error: 'Repartidor no encontrado o sin rol repartidor' });
+
+    const result = await pool.query(
+      `UPDATE pedidos SET repartidor_id = $1, updated_at = NOW() WHERE id = $2 RETURNING id, numero, repartidor_id`,
+      [repartidor_id, id]
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'Pedido no encontrado' });
+    res.json({ message: 'Repartidor asignado', pedido: result.rows[0] });
+  } catch (error) {
+    logger.error('Error asignarRepartidor:', error);
+    res.status(500).json({ error: 'Error al asignar repartidor' });
+  }
 };
 
 // ── Confirmar entrega con codigo ──────────────────────────
@@ -102,29 +130,48 @@ exports.confirmarEntrega = async (req, res) => {
     const pedido = await client.query(q, params);
     if (!pedido.rows.length) return res.status(404).json({ error: 'Pedido no encontrado o ya confirmado' });
     if (pedido.rows[0].codigo_confirmacion !== codigo) return res.status(401).json({ error: 'Codigo invalido' });
+
+    const localDestino = pedido.rows[0].local_destino;
+
     await client.query(
       `UPDATE pedidos SET estado='entregado', confirmado=true, confirmado_at=NOW(), updated_at=NOW() WHERE id=$1`,
       [pedido_id]
     );
     const items = await client.query(`SELECT * FROM pedido_items WHERE pedido_id=$1`, [pedido_id]);
     for (const item of items.rows) {
+      // Sumar stock en destino (la entrega recibe mercadería)
+      const stockRow = await client.query(
+        'SELECT cantidad FROM stock WHERE producto_id = $1 AND local_id = $2 FOR UPDATE',
+        [item.producto_id, localDestino]
+      );
+      const stockActual = parseFloat(stockRow.rows[0]?.cantidad || 0);
+      const cantidad = parseFloat(item.cantidad);
+      const cantidadDespues = stockActual + cantidad;
+
+      if (stockRow.rows.length === 0) {
+        await client.query(
+          'INSERT INTO stock (producto_id, local_id, cantidad, updated_at) VALUES ($1, $2, $3, NOW())',
+          [item.producto_id, localDestino, cantidad]
+        );
+      } else {
+        await client.query(
+          'UPDATE stock SET cantidad = $1, updated_at = NOW() WHERE producto_id = $2 AND local_id = $3',
+          [cantidadDespues, item.producto_id, localDestino]
+        );
+      }
+
       await client.query(
         `INSERT INTO movimientos_stock
-           (producto_id, local_id, tipo, cantidad, referencia_id, usuario_id, notas)
-         VALUES ($1,$2,'venta',$3,$4,$5,'Pedido entregado')`,
-        [item.producto_id, pedido.rows[0].local_destino, item.cantidad, pedido_id, repartidor_id]
-      );
-      await client.query(
-        `UPDATE stock SET cantidad=cantidad-$1, updated_at=NOW()
-         WHERE producto_id=$2 AND local_id=$3`,
-        [item.cantidad, item.producto_id, pedido.rows[0].local_destino]
+           (producto_id, local_id, tipo, cantidad, cantidad_antes, cantidad_despues, referencia_id, usuario_id, notas)
+         VALUES ($1,$2,'transferencia_entrada',$3,$4,$5,$6,$7,'Entrega de distribución confirmada')`,
+        [item.producto_id, localDestino, cantidad, stockActual, cantidadDespues, pedido_id, repartidor_id]
       );
     }
     await client.query('COMMIT');
-    res.json({ message: 'Entrega confirmada' });
+    res.json({ message: 'Entrega confirmada. Stock actualizado en destino.' });
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Error confirmarEntrega:', error);
+    logger.error('Error confirmarEntrega:', error);
     res.status(500).json({ error: 'Error al confirmar entrega' });
   } finally { client.release(); }
 };
@@ -152,7 +199,7 @@ exports.actualizarGPS = async (req, res) => {
     } catch {}
     res.json({ message: 'Ubicacion actualizada' });
   } catch (error) {
-    console.error('Error GPS:', error);
+    logger.error('Error GPS:', error);
     res.status(500).json({ error: 'Error al actualizar GPS' });
   }
 };
@@ -178,7 +225,7 @@ exports.reportarProblema = async (req, res) => {
     );
     res.json({ message: 'Problema reportado' });
   } catch (error) {
-    console.error('Error reportarProblema:', error);
+    logger.error('Error reportarProblema:', error);
     res.status(500).json({ error: 'Error al reportar problema' });
   }
 };
@@ -278,7 +325,7 @@ exports.rutaOptimizada = async (req, res) => {
 
     res.json(ruta);
   } catch (error) {
-    console.error('Error ruta optimizada:', error);
+    logger.error('Error ruta optimizada:', error);
     res.status(500).json({ error: 'Error al calcular ruta' });
   }
 };

@@ -1,5 +1,6 @@
 // src/controllers/unidadesMedidaController.js — CRUD de unidades de medida
 const { pool } = require('../config/database');
+const { logger } = require('../services/logger');
 
 exports.listar = async (req, res) => {
   try {
@@ -8,7 +9,7 @@ exports.listar = async (req, res) => {
     );
     res.json(result.rows);
   } catch (error) {
-    console.error('Error listar unidades:', error);
+    logger.error('Error listar unidades:', error);
     res.status(500).json({ error: 'Error al listar unidades de medida' });
   }
 };
@@ -24,7 +25,7 @@ exports.crear = async (req, res) => {
     res.status(201).json(result.rows[0]);
   } catch (error) {
     if (error.code === '23505') return res.status(409).json({ error: 'Ya existe una unidad con ese nombre' });
-    console.error('Error crear unidad:', error);
+    logger.error('Error crear unidad:', error);
     res.status(500).json({ error: 'Error al crear unidad de medida' });
   }
 };
@@ -46,7 +47,7 @@ exports.actualizar = async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: 'Unidad no encontrada' });
     res.json(result.rows[0]);
   } catch (error) {
-    console.error('Error actualizar unidad:', error);
+    logger.error('Error actualizar unidad:', error);
     res.status(500).json({ error: 'Error al actualizar unidad' });
   }
 };
@@ -60,7 +61,7 @@ exports.eliminar = async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: 'Unidad no encontrada' });
     res.json({ message: 'Unidad desactivada' });
   } catch (error) {
-    console.error('Error eliminar unidad:', error);
+    logger.error('Error eliminar unidad:', error);
     res.status(500).json({ error: 'Error al eliminar unidad' });
   }
 };

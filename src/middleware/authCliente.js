@@ -4,7 +4,7 @@ const jwt = require('jsonwebtoken');
 const { pool } = require('../config/database');
 
 const JWT_SECRET_CLIENTES = process.env.JWT_SECRET_CLIENTES || (process.env.JWT_SECRET + '_clientes');
-const JWT_EXPIRES_IN = process.env.JWT_CLIENTES_EXPIRES_IN || '7d';
+const JWT_EXPIRES_IN = process.env.JWT_CLIENTES_EXPIRES_IN || '1h';
 
 /**
  * Genera un access token para un cliente web
