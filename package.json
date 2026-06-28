@@ -15,6 +15,7 @@
     "axios": "^1.6.2",
     "babel-preset-expo": "~54.0.10",
     "expo": "~54.0.34",
+    "expo-local-authentication": "^56.0.4",
     "expo-location": "~19.0.8",
     "expo-status-bar": "~3.0.9",
     "expo-task-manager": "~14.0.9",
@@ -28,6 +29,7 @@
     "react-native-screens": "~4.16.0"
   },
   "devDependencies": {
-    "@babel/core": "^7.25.0"
+    "@babel/core": "^7.25.0",
+    "qrcode-terminal": "^0.12.0"
   }
 }

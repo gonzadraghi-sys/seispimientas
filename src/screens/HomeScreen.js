@@ -150,9 +150,14 @@ export default function HomeScreen({ navigation }) {
             {new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })}
           </Text>
         </View>
-        <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn}>
-          <Text style={styles.logoutText}>Salir</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <TouchableOpacity onPress={() => navigation.navigate('Dev')} style={styles.devBtn}>
+            <Text style={styles.devBtnText}>🧪</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn}>
+            <Text style={styles.logoutText}>Salir</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* GPS indicator */}
@@ -237,6 +242,8 @@ const styles = StyleSheet.create({
   headerDate:      { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 2, textTransform: 'capitalize' },
   logoutBtn:       { backgroundColor: 'rgba(255,255,255,0.2)', paddingVertical: 7, paddingHorizontal: 14, borderRadius: 20 },
   logoutText:      { color: '#fff', fontSize: 13, fontWeight: '600' },
+  devBtn:          { backgroundColor: 'rgba(255,255,255,0.15)', paddingVertical: 7, paddingHorizontal: 10, borderRadius: 20 },
+  devBtnText:      { fontSize: 15 },
   gpsBanner:       { backgroundColor: '#EAFAF1', flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 16, gap: 8 },
   gpsDot:          { width: 8, height: 8, borderRadius: 4, backgroundColor: '#27AE60' },
   gpsText:         { fontSize: 12, color: '#27AE60', fontWeight: '500' },
